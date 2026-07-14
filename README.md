@@ -576,15 +576,6 @@ The project addresses a practical enterprise workflow: reducing the manual effor
 
 ---
 
-## Author
-
-**Malla Shriya**  
-B.Tech — Information Technology  
-Manipal Institute of Technology, Bengaluru
-
-GitHub: `shriya-2006`
-
----
 
 ## Disclaimer
 
