@@ -1,0 +1,107 @@
+/* ============================================================================
+   NewsPulse — Design Tokens
+   Direction: the visual language of the plant itself — graphite/steel tones
+   with a single molten-ember accent, evoking raw material and refinement.
+   A thin "seam" gradient (graphite → ember) is the signature motif, used
+   sparingly under headers and active states — like a weld line.
+   ============================================================================ */
+
+:root {
+  /* --- Color: base --- */
+  --graphite-900: #14181d;
+  --graphite-800: #1c2128;
+  --graphite-700: #2a313a;
+  --graphite-600: #3d4650;
+  --slate-400: #7c8894;
+  --slate-200: #d7dce1;
+  --slate-100: #eef1f4;
+  --white: #ffffff;
+
+  /* --- Color: brand / accent --- */
+  --steel-600: #3f6690;
+  --steel-500: #4d7aab;
+  --steel-100: #e8eef5;
+  --ember-600: #c85a1f;
+  --ember-500: #e8722c;
+  --ember-100: #fdece0;
+
+  /* --- Color: semantic --- */
+  --success: #2f8f5b;
+  --error: #c0392b;
+  --bg-app: #f4f6f8;
+  --bg-panel: var(--white);
+  --text-primary: var(--graphite-900);
+  --text-secondary: var(--slate-400);
+  --border-subtle: var(--slate-200);
+
+  /* --- The signature seam gradient --- */
+  --seam-gradient: linear-gradient(90deg, var(--graphite-700) 0%, var(--ember-500) 100%);
+
+  /* --- Typography --- */
+  --font-display: "Space Grotesk", "Segoe UI", sans-serif;
+  --font-body: "Inter", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Consolas", monospace;
+
+  /* --- Layout --- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px rgba(20, 24, 29, 0.06);
+  --shadow-md: 0 4px 16px rgba(20, 24, 29, 0.08);
+  --shadow-lg: 0 12px 32px rgba(20, 24, 29, 0.14);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-8: 48px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+button {
+  font-family: var(--font-body);
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ember-500);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

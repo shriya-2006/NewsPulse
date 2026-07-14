@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="{{ language }}">
+<head>
+<meta charset="utf-8" />
+<title>{{ report_title }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2.6cm 2cm 2.4cm 2cm;
+    @top-center {
+      content: "NewsPulse — Enterprise News Monitoring Report";
+      font-family: 'Noto Sans Devanagari', 'Noto Sans Telugu', 'Nirmala UI', 'DejaVu Sans', sans-serif;
+      font-size: 8.5pt;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #6b7280;
+    }
+    @bottom-left {
+      content: "Rashtriya Ispat Nigam Limited · Visakhapatnam Steel Plant";
+      font-family: 'Noto Sans Devanagari', 'Noto Sans Telugu', 'Nirmala UI', 'DejaVu Sans', sans-serif;
+      font-size: 8pt;
+      color: #9ca3af;
+    }
+    @bottom-right {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: 'Noto Sans Devanagari', 'Noto Sans Telugu', 'Nirmala UI', 'DejaVu Sans', sans-serif;
+      font-size: 8pt;
+      color: #9ca3af;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans Devanagari', 'Noto Sans Telugu', 'Nirmala UI', 'DejaVu Sans', sans-serif;
+    color: #1f2937;
+    font-size: 10.5pt;
+    line-height: 1.5;
+  }
+
+  /* --- Cover block --- */
+  .cover {
+    border-bottom: 3px solid #1e3a5f;
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+  }
+
+  .cover__eyebrow {
+    font-size: 8.5pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #b45309;
+    margin: 0 0 6px 0;
+  }
+
+  .cover__title {
+    font-size: 20pt;
+    font-weight: 700;
+    color: #111827;
+    margin: 0 0 14px 0;
+  }
+
+  .cover__meta {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9.5pt;
+  }
+
+  .cover__meta td {
+    padding: 3px 0;
+    vertical-align: top;
+  }
+
+  .cover__meta td.label {
+    width: 130px;
+    color: #6b7280;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 8pt;
+    letter-spacing: 0.03em;
+  }
+
+  .cover__meta td.value {
+    color: #111827;
+  }
+
+  /* --- Article blocks --- */
+  .article {
+    break-inside: avoid;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .article:last-child {
+    border-bottom: none;
+  }
+
+  .article__index {
+    display: inline-block;
+    font-size: 8pt;
+    font-weight: 700;
+    color: #ffffff;
+    background: #1e3a5f;
+    border-radius: 3px;
+    padding: 1px 6px;
+    margin-bottom: 6px;
+  }
+
+  .article__title {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #111827;
+    margin: 0 0 4px 0;
+    line-height: 1.35;
+  }
+
+  .article__meta {
+    font-size: 8.5pt;
+    color: #6b7280;
+    margin-bottom: 8px;
+  }
+
+  .article__meta .source {
+    font-weight: 700;
+    color: #1e3a5f;
+  }
+
+  .article__body {
+    font-size: 10pt;
+    color: #374151;
+    text-align: justify;
+    margin-bottom: 6px;
+  }
+
+  .article__body.is-summary-only {
+    font-style: italic;
+    color: #4b5563;
+  }
+
+  .article__link {
+    font-size: 8.5pt;
+    color: #b45309;
+  }
+
+  .footer-note {
+    margin-top: 28px;
+    padding-top: 10px;
+    border-top: 1px solid #e5e7eb;
+    font-size: 8pt;
+    color: #9ca3af;
+  }
+</style>
+</head>
+<body>
+
+  <div class="cover">
+    <p class="cover__eyebrow">Daily News Monitoring Report</p>
+    <h1 class="cover__title">{{ report_title }}</h1>
+    <table class="cover__meta">
+      <tr><td class="label">Generated</td><td class="value">{{ generated_at }}</td></tr>
+      <tr><td class="label">Keyword</td><td class="value">{{ keyword }}</td></tr>
+      <tr><td class="label">Language</td><td class="value">{{ language_label }}</td></tr>
+      <tr><td class="label">Newspaper</td><td class="value">{{ newspaper_label }}</td></tr>
+      <tr><td class="label">Edition</td><td class="value">{{ edition_label }}</td></tr>
+      <tr><td class="label">Articles included</td><td class="value">{{ articles|length }}</td></tr>
+    </table>
+  </div>
+
+  {% for article in articles %}
+  <div class="article">
+    <span class="article__index">{{ loop.index }}</span>
+    <h2 class="article__title">{{ article.title }}</h2>
+    <p class="article__meta">
+      <span class="source">{{ article.source_name }}</span>
+      {% if article.published_at_label %} · {{ article.published_at_label }}{% endif %}
+    </p>
+    {% if article.content %}
+      <p class="article__body">{{ article.content }}</p>
+    {% elif article.description %}
+      <p class="article__body is-summary-only">{{ article.description }}</p>
+    {% else %}
+      <p class="article__body is-summary-only">No summary available from the source.</p>
+    {% endif %}
+    <p class="article__link">Original article: {{ article.url }}</p>
+  </div>
+  {% endfor %}
+
+  <div class="footer-note">
+    Generated automatically by NewsPulse. Article text is reproduced from
+    the originating publication for internal review purposes only.
+  </div>
+
+</body>
+</html>
