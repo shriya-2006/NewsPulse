@@ -1,245 +1,591 @@
 # NewsPulse — Enterprise News Monitoring & Report Generation System
 
-**Internship project — RINL, Visakhapatnam Steel Plant**
+**Full-Stack Internship Project developed for RINL, Visakhapatnam Steel Plant**
 
-Automates the daily manual process of searching news sites for
-industry-relevant coverage (Steel, Coal, Iron Ore, Manufacturing, RINL,
-Government Policies, Mining, Exports) and compiling it into a PDF report
-for the Director.
+NewsPulse is an enterprise news monitoring and report generation platform designed to automate the daily process of discovering, filtering, organizing, and reporting industry-relevant news.
 
----
-
-## Recent fixes
-
-A round of fixes on top of the five core modules, based on real usage:
-
-1. **Removed the "Backend Connected Successfully" status chip** from the
-   Dashboard — it was a Day-1 development aid, not meant to ship.
-2. **Tags are now multi-select.** Clicking multiple tags searches for
-   any of them (combined with `OR`) instead of replacing the previous
-   selection.
-3. **Custom date filter is now a range** (`date_from` / `date_to`)
-   instead of a single date.
-4. **Added Telugu and Hindi predefined tags** — all 23 industry tags
-   now have Telugu and Hindi versions, shown automatically based on the
-   selected search language (`GET /news/tags?language=te`).
-5. **The Language → Newspaper → Edition filter is now a genuine
-   database-backed cascade**, not a static list. Newspapers and
-   editions live in real tables (`newspapers`, `newspaper_editions` —
-   see backend/README.md), seeded automatically on first startup.
-   Selecting a language fetches that language's newspapers
-   (`GET /news/newspapers?language=Telugu` — accepts either the code or
-   the display name); selecting a newspaper fetches its editions
-   (`GET /news/editions?newspaper=eenadu`); changing the language resets
-   the newspaper and edition, changing the newspaper resets the
-   edition; a newspaper with no editions on file shows "No editions
-   available." rather than an error. **Adding a new newspaper or
-   edition is a database `INSERT` — no frontend or backend code changes,
-   no redeploy.**
-6. **Report PDFs use real article text when the news provider supplies
-   it** (GNews/NewsData.io on paid plans populate a `content` field;
-   the RSS fallback never does). Without that, the PDF falls back to
-   the search result's `description`, then to a "no summary available"
-   note. No web scraping of the original article page is done — if you
-   want fuller content in reports, the way to get it is real GNews/
-   NewsData.io API keys (see backend/README.md), not scraping.
-7. **Newspaper filtering is now strictly enforced, not just hinted.**
-   A real bug was found: selecting a newspaper alongside multiple tags
-   (`Steel OR RINL`) silently broke the filter, because
-   `Steel OR RINL site:thehindu.com` was being parsed as
-   `Steel OR (RINL site:thehindu.com)` — the site restriction only
-   applied to half the query. Fixed by always parenthesizing the
-   keyword expression, plus every result is now verified after
-   fetching (by URL domain or source name, whichever is reliable for
-   that provider) — so a newspaper filter genuinely means "only this
-   outlet's articles," with the aggregator falling back to the next
-   provider if the strict check leaves nothing.
-8. **Edition no longer requires a newspaper to be selected first** —
-   picking just an edition (e.g. "Visakhapatnam") now searches every
-   newspaper for that location, via a new `GET /news/editions` (no
-   `newspaper` param) that returns the deduplicated union of every
-   edition across all 12 newspapers.
-9. **Report PDFs now show more of each article's available text.**
-   GNews/NewsData.io's `content` field is often truncated (cut off with
-   a `[+N chars]` marker, which is now stripped); when `description`
-   adds genuinely different information, both are kept in the report
-   instead of picking just one. Still no scraping — this only makes
-   better use of what the provider already returns.
-10. **Fixed a real bug causing Telugu (and any) searches to sometimes
-    return nothing: a single tag click was firing the search request
-    multiple times.** The tag-toggle handler called `performSearch`
-    (a network request) from inside the function passed to
-    `setSelectedTags` — React is explicitly allowed to invoke that
-    function more than once per update (and does, on purpose, under
-    `React.StrictMode` in development, specifically to catch bugs like
-    this one), so every click could fire 2+ identical searches, with
-    each additional tag click re-firing the *entire* accumulated
-    OR-query on top of that. Hammering Google News RSS this fast is a
-    very plausible way to trip silent rate limiting (a `200 OK` with an
-    empty feed, no explicit error) — which looks exactly like "no
-    results," especially for Telugu/Hindi where the multi-tag flow
-    naturally builds longer OR chains. Fixed by moving the search
-    trigger out of the state updater into the handler body. Also added:
-    a real distinction between "provider ran fine, found nothing" and
-    "provider actually failed" (bad response, network error) — a search
-    that comes back empty because a source genuinely broke now says so
-    in the response's `notice` field, instead of showing the same
-    generic message as an honest empty result.
-11. **Fixed a second real bug the new diagnostic notice (from #10)
-    immediately surfaced: Google News RSS requests weren't following
-    redirects.** `httpx` (unlike Python's older, more common `requests`
-    library) does not follow HTTP redirects by default. Google News RSS
-    has been observed responding with a `302`, which — without
-    `follow_redirects=True` — was being treated as an outright provider
-    failure instead of being followed to the real feed content. All
-    three news provider HTTP calls now set `follow_redirects=True`.
-
-### About "NewsData.io API key invalid"
-
-If your app's diagnostic notice mentions this, it means NewsData.io's
-own server rejected the key with an HTTP 401 — the code sends it
-correctly (as the `apikey` query parameter, matching their documented
-API), so this isn't a code bug. It typically means one of: the key was
-copied with extra whitespace/a line break, the key was regenerated or
-revoked in the NewsData.io dashboard since it was first set, or (common
-on their free tier) the account needs email verification before the
-key activates. Worth double-checking directly in your NewsData.io
-dashboard. This is harmless either way for search results — GNews and
-the no-key RSS fallback still work independently of it.
-
-12. **Fixed a third real bug: NewsData.io's `domain` filter param
-    caused a 422 for certain newspapers (observed with Andhra Jyothy)
-    while working for others, taking down the whole newspaper-filtered
-    search instead of falling through to the RSS fallback.** In
-    practice, NewsData.io's `domain` parameter appears to only accept
-    domains from their own internal registered-source list, rejecting
-    anything else outright — not the "silently ignored on the free
-    tier" behavior originally assumed. Fixed by no longer sending
-    `domain` to NewsData.io at all; newspaper filtering for this
-    provider now relies entirely on the aggregator's own post-fetch
-    verification (`_matches_newspaper`), the same approach already used
-    for GNews, which never had a working domain filter to begin with.
-13. **Added search result caching + a retention cleanup job**, per a
-    direct suggestion from the project's guide: rather than calling a
-    live news provider on every single search, results are now cached
-    in the database and served from there for repeated/popular queries
-    within a configurable freshness window — meaningful protection
-    against free-tier API quota exhaustion (GNews: 100 requests/day,
-    NewsData.io: 200/day) and reduces load on the RSS fallback, which
-    is the endpoint most prone to rate limiting under heavy request
-    volume. A companion cleanup job deletes cached articles/searches
-    older than a configurable retention period (default 90 days),
-    while permanently protecting any article that's ever been selected
-    into a still-existing report, regardless of age. See
-    backend/README.md's "Search result caching" and "Cleanup (the
-    retention cron)" sections for the full design and how to schedule
-    the cleanup job for real ongoing use.
-14. **Fixed a real MySQL startup crash (error 3780) surfaced by adding
-    the caching feature above: every table's ID/foreign-key columns
-    now correctly compile to `BIGINT UNSIGNED` on MySQL, matching
-    `database/schema.sql` exactly.** The ORM's shared ID type
-    previously compiled to plain signed `BIGINT` on MySQL — invisible
-    for a long time because every existing table had originally been
-    created by running `schema.sql` directly (consistently UNSIGNED on
-    both sides), only becoming a real, reproducible crash the moment a
-    brand-new ORM-only table needed to reference an existing one, since
-    MySQL 8.0.19+ rejects a foreign key whose referencing and
-    referenced columns disagree on signedness. See backend/README.md's
-    "If you hit MySQL error 3780" section if you're upgrading from a
-    build before this fix.
+The system enables users to search for news related to topics such as **Steel, Coal, Iron Ore, Manufacturing, RINL, Government Policies, Mining, and Exports**, apply language and publication filters, select relevant articles, and generate structured PDF reports.
 
 ---
 
-## Architecture
+## Overview
 
+Organizations often spend significant time manually searching multiple news sources for industry-relevant information and compiling selected articles into reports.
+
+NewsPulse streamlines this workflow by providing a centralized platform for:
+
+- Searching current industry-related news
+- Filtering news by language, newspaper, edition, and date
+- Using predefined or custom search tags
+- Selecting relevant articles
+- Generating downloadable PDF reports
+- Maintaining report history
+- Monitoring user and system activity through an admin dashboard
+
+---
+
+## Key Features
+
+### Authentication and User Management
+
+- User registration and login
+- JWT-based authentication
+- Secure password hashing using bcrypt
+- Protected frontend and backend routes
+- Remember Me functionality
+- Forgot-password and password-reset workflow
+- SMTP-based password recovery with development fallback
+- Role-based access for users and administrators
+- Secure logout and authenticated user sessions
+
+### News Search and Aggregation
+
+NewsPulse uses a multi-provider news aggregation strategy:
+
+1. **GNews API**
+2. **NewsData.io API**
+3. **Google News RSS fallback**
+
+If one provider is unavailable or fails to return usable results, the system can fall back to another configured source.
+
+Additional search capabilities include:
+
+- Predefined industry-specific tags
+- Custom keyword searches
+- Multi-select tags combined using OR-based search
+- English, Telugu, and Hindi search support
+- Custom date-range filtering
+- Search result pagination
+- Loading, error, and no-results states
+- Provider failure diagnostics
+- Search result caching to reduce repeated external API requests
+
+### Dynamic Language → Newspaper → Edition Filtering
+
+The newspaper and edition filtering system is database-driven rather than hard-coded in the frontend.
+
+The application supports:
+
+- Dynamic newspaper lists based on selected language
+- Dynamic edition lists based on selected newspaper
+- Searching by edition without requiring a newspaper selection
+- Automatic filter resets when parent selections change
+- Database-backed newspaper and edition management
+- Strict post-fetch newspaper verification
+
+New newspapers and editions can be added through database records without modifying frontend filtering logic.
+
+### Multilingual Support
+
+Industry-specific predefined tags are available in:
+
+- English
+- Telugu
+- Hindi
+
+The available tags automatically change based on the selected search language.
+
+### Article Selection and PDF Report Generation
+
+Users can:
+
+- Select multiple news articles
+- Generate structured PDF reports
+- Download generated reports
+- Access previously generated reports from Report History
+
+PDF generation is handled using **WeasyPrint** and includes:
+
+- Structured report layout
+- Cover page
+- Headers and footers
+- Page numbering
+- Available article content and descriptions
+- Persistent report and article records in MySQL
+
+When a news provider supplies article content, NewsPulse uses the available text in the generated report. If full content is unavailable, the system falls back to the available description.
+
+### Report History
+
+The Report History module allows authenticated users to:
+
+- View previously generated reports
+- Access report metadata
+- Re-download existing PDF reports
+
+### Admin Dashboard
+
+Administrators have access to a dedicated dashboard containing:
+
+- Platform statistics
+- User activity information
+- Search and report analytics
+- Recent activity
+- Per-user activity
+- Multiple analytical charts and visualizations
+
+### Search Result Caching
+
+To reduce unnecessary calls to external news providers, NewsPulse caches search results in the database.
+
+This helps:
+
+- Reduce API quota consumption
+- Improve response time for repeated searches
+- Reduce load on RSS providers
+- Improve reliability under repeated usage
+
+A retention cleanup process removes old cached data while preserving articles associated with existing reports.
+
+---
+
+## System Architecture
+
+```text
+┌─────────────────────┐
+│   React Frontend    │
+│   Vite + React      │
+│   React Router      │
+└──────────┬──────────┘
+           │
+           │ REST API / JSON
+           ▼
+┌─────────────────────┐
+│   FastAPI Backend   │
+│                     │
+│ Routes              │
+│   ↓                 │
+│ Pydantic Schemas    │
+│   ↓                 │
+│ Services            │
+│   ↓                 │
+│ SQLAlchemy Models   │
+└──────────┬──────────┘
+           │
+           │ SQL
+           ▼
+┌─────────────────────┐
+│      MySQL          │
+│      Database       │
+└─────────────────────┘
 ```
-┌──────────────────┐        REST / JSON        ┌───────────────────┐        SQL        ┌──────────┐
-│  React Frontend    │ ─────────────────────────▶ │  FastAPI Backend    │ ─────────────────▶ │  MySQL    │
-│  (Vite, React       │ ◀───────────────────────── │  routes → schemas   │ ◀───────────────── │  Database │
-│   Router)            │                             │  → models            │                    │           │
-└──────────────────┘                              └───────────────────┘                    └──────────┘
+
+---
+
+## Tech Stack
+
+### Frontend
+
+- React
+- Vite
+- JavaScript
+- HTML5
+- CSS3
+- React Router
+
+### Backend
+
+- Python
+- FastAPI
+- Uvicorn
+- Pydantic
+- SQLAlchemy
+- JWT Authentication
+- bcrypt
+- httpx
+- WeasyPrint
+
+### Database
+
+- MySQL
+
+### News Sources
+
+- GNews API
+- NewsData.io API
+- Google News RSS
+
+### Testing
+
+- pytest
+- Automated backend test suite
+
+### Deployment
+
+- GitHub — Source code repository
+- Render — FastAPI backend
+- Vercel — React/Vite frontend
+- Aiven — Managed MySQL database
+
+---
+
+## Repository Structure
+
+```text
+NewsPulse/
+│
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   │   └── routes/
+│   │   ├── core/
+│   │   ├── db/
+│   │   ├── models/
+│   │   ├── schemas/
+│   │   ├── scripts/
+│   │   ├── services/
+│   │   │   └── news/
+│   │   ├── templates/
+│   │   └── utils/
+│   │
+│   ├── tests/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── README.md
+│
+├── frontend/
+│   ├── src/
+│   │   ├── api/
+│   │   ├── components/
+│   │   ├── context/
+│   │   ├── pages/
+│   │   └── styles/
+│   │
+│   ├── Dockerfile
+│   ├── package.json
+│   └── vite.config.js
+│
+├── database/
+│   └── schema.sql
+│
+└── README.md
 ```
 
-- **Frontend**: React (Vite), component-based, React Router for navigation
-  between auth pages and the dashboard.
-- **Backend**: FastAPI, layered into `routes` (HTTP handling) →
-  `schemas` (Pydantic validation) → `models` (SQLAlchemy ORM), so each
-  future feature slots into the same three folders.
-- **Database**: MySQL. Full schema designed for the entire feature set
-  (users, password resets, search history, reports, articles) — see
-  `database/schema.sql`.
+---
 
-## Repository layout
+## Core Modules
 
-```
-newspulse/
-├── backend/         # FastAPI app — see backend/README.md
-├── frontend/        # React app — see frontend/README.md
-└── database/
-    └── schema.sql   # Full MySQL schema (all tables, Day 1 design)
-```
+| Module | Description | Status |
+|---|---|---|
+| Project Architecture | Full-stack project structure and layered architecture | Complete |
+| Authentication | Register, login, logout, password reset, JWT authentication | Complete |
+| News Search | Multi-provider news aggregation and filtering | Complete |
+| Multilingual Search | English, Telugu, and Hindi industry tags | Complete |
+| Dynamic Filters | Database-backed language, newspaper, and edition filtering | Complete |
+| Article Selection | Multi-article selection for report generation | Complete |
+| PDF Reports | Structured PDF generation and download | Complete |
+| Report History | View and re-download generated reports | Complete |
+| Admin Dashboard | Statistics, charts, and user activity | Complete |
+| Search Caching | Database-backed caching and retention cleanup | Complete |
+| Automated Testing | Backend pytest test suite | Complete |
 
-## Status
+---
 
-| Deliverable                                   | Status |
-|------------------------------------------------|--------|
-| Architecture finalized                          | ✅ Done |
-| Folder structure (frontend + backend)          | ✅ Done |
-| React project setup                             | ✅ Done |
-| FastAPI backend setup                           | ✅ Done |
-| MySQL schema design                             | ✅ Done |
-| Login / Register / Forgot Password UI          | ✅ Done |
-| Dashboard UI shell (search, filters, reserved results area) | ✅ Done |
-| `/api/v1/health` endpoint                       | ✅ Done |
-| Frontend ↔ backend connection proof             | ✅ Done — live status chip on Dashboard |
-| **Module 2 — JWT auth (register/login/forgot/reset/me/logout)** | ✅ Done |
-| **Password hashing (bcrypt), protected routes, "remember me"** | ✅ Done |
-| **Real forgot-password emails via SMTP, with console fallback** | ✅ Done |
-| **Dashboard is a protected route; real sign-out** | ✅ Done |
-| **Module 3 — News search (GNews → NewsData.io → Google News RSS fallback)** | ✅ Done |
-| **Predefined + custom tags, newspaper/edition/date filters** | ✅ Done |
-| **Article selection, loading skeletons, error/no-results states, pagination** | ✅ Done |
-| **Module 4 — PDF report generation (WeasyPrint, cover page, headers/footers/page numbers)** | ✅ Done |
-| **Report + article storage in MySQL, authenticated PDF download** | ✅ Done |
-| **Module 5 — Admin dashboard (stats, 6 charts, recent activity, per-user activity)** | ✅ Done |
-| **Report History page (`/reports`) — list + re-download past reports** | ✅ Done |
-| **Automated backend test suite (76 pytest tests)** | ✅ Done |
+## Local Development Setup
 
-Every major feature area from the original project spec — auth, search, report generation, and admin analytics — is now built end-to-end.
+### Prerequisites
 
-## Running both services
+Make sure the following are installed:
+
+- Python 3.x
+- Node.js and npm
+- MySQL
+- Git
+
+---
+
+## 1. Clone the Repository
 
 ```bash
-# Terminal 1 — backend
-cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env            # set a real SECRET_KEY and your MySQL credentials
-uvicorn app.main:app --reload
+git clone https://github.com/shriya-2006/NewsPulse.git
+cd NewsPulse
+```
 
-# Terminal 2 — frontend
-cd frontend
-npm install
+---
+
+## 2. Backend Setup
+
+Navigate to the backend directory:
+
+```bash
+cd backend
+```
+
+Create a virtual environment.
+
+### Windows
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+### Linux / macOS
+
+```bash
+python -m venv venv
+source venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Create your environment file from the example.
+
+### Windows PowerShell
+
+```powershell
+Copy-Item .env.example .env
+```
+
+### Linux / macOS
+
+```bash
 cp .env.example .env
+```
+
+Configure the required environment variables in `.env`.
+
+> Never commit the real `.env` file, database passwords, API keys, or secret keys to GitHub.
+
+Start the FastAPI development server:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+The backend will normally be available at:
+
+```text
+http://localhost:8000
+```
+
+FastAPI API documentation:
+
+```text
+http://localhost:8000/docs
+```
+
+---
+
+## 3. Database Setup
+
+Create a MySQL database and import:
+
+```text
+database/schema.sql
+```
+
+Then configure the backend environment variables with the appropriate database connection details.
+
+The application uses MySQL for:
+
+- Users
+- Authentication-related data
+- Search history
+- Newspapers and editions
+- Cached search results
+- Reports
+- Report articles
+- Administrative analytics
+
+---
+
+## 4. Frontend Setup
+
+Open a new terminal and navigate to the frontend directory:
+
+```bash
+cd frontend
+```
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Create the frontend environment file.
+
+### Windows PowerShell
+
+```powershell
+Copy-Item .env.example .env
+```
+
+### Linux / macOS
+
+```bash
+cp .env.example .env
+```
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-Open http://localhost:5173 — register an account, search "steel", select
-a couple of articles, and click "Generate Report" to download a real PDF.
-Promote yourself to admin (see backend/README.md) to see the Admin Dashboard.
+The frontend will normally be available at:
 
-## What's left (polish, not new features)
+```text
+http://localhost:5173
+```
 
-The core spec is fully implemented. What would remain for a genuine
-production deployment:
+---
 
-1. Real SMTP credentials configured for forgot-password (currently
-   falls back to console logging if unset).
-2. Real GNews/NewsData.io API keys for richer results than the RSS
-   fallback alone (full article text, images).
-3. Deployment hardening: HTTPS, a production MySQL instance, moving
-   `SECRET_KEY`/API keys out of `.env` into a real secrets manager,
-   and switching `Base.metadata.create_all()` to proper Alembic
-   migrations. Containerizing this (Docker/docker-compose) is a
-   natural next step whenever you're ready for it.
+## Environment Variables
 
+The repository contains `.env.example` files that document the environment variables required by the frontend and backend.
+
+### Important Security Rules
+
+- Never commit `.env` files
+- Never commit database passwords
+- Never commit production `SECRET_KEY` values
+- Never commit API keys
+- Store production secrets using the environment-variable settings provided by the deployment platform
+
+---
+
+## API Overview
+
+The backend exposes REST API endpoints for:
+
+- Authentication
+- User management
+- News search
+- Search tags
+- Newspapers
+- Editions
+- PDF report generation
+- Report history
+- Administrative analytics
+- Health checks
+
+FastAPI automatically provides interactive API documentation at:
+
+```text
+/docs
+```
+
+when the backend is running.
+
+---
+
+## Testing
+
+The backend includes an automated pytest test suite covering major application functionality.
+
+Run the tests from the `backend` directory:
+
+```bash
+pytest
+```
+
+The test suite covers areas including:
+
+- Authentication
+- News search
+- Reports
+- Admin functionality
+- Search caching
+- Database schema consistency
+
+---
+
+## Deployment Architecture
+
+The production deployment uses separate services for each layer:
+
+```text
+                ┌────────────────────┐
+                │      Vercel        │
+                │   React Frontend   │
+                └─────────┬──────────┘
+                          │
+                          │ HTTPS / REST API
+                          ▼
+                ┌────────────────────┐
+                │       Render       │
+                │  FastAPI Backend   │
+                └─────────┬──────────┘
+                          │
+                          │ Secure MySQL Connection
+                          ▼
+                ┌────────────────────┐
+                │       Aiven        │
+                │   MySQL Database   │
+                └────────────────────┘
+```
+
+### Production Services
+
+- **Frontend:** Vercel
+- **Backend:** Render
+- **Database:** Aiven MySQL
+- **Source Control:** GitHub
+
+Production credentials and API keys are configured through the respective deployment platforms and are not stored in the repository.
+
+---
+
+## Security
+
+NewsPulse implements several security practices:
+
+- Password hashing with bcrypt
+- JWT-based authentication
+- Protected API endpoints
+- Role-based access control
+- Environment-based secret management
+- `.gitignore` protection for local environment files
+- Server-side request validation using Pydantic
+- Database-backed authentication and authorization
+
+---
+
+## Project Status
+
+**Core Development: Complete**
+
+The major functional modules of NewsPulse are implemented end-to-end:
+
+- Authentication
+- News aggregation and search
+- Multilingual tags
+- Dynamic filtering
+- Article selection
+- PDF report generation
+- Report history
+- Admin analytics
+- Search caching
+- Automated backend testing
+
+The project is prepared for cloud deployment using a managed MySQL database, a hosted FastAPI backend, and a separately deployed React frontend.
+
+---
+
+## Internship Context
+
+NewsPulse was developed as a full-stack internship project for **RINL, Visakhapatnam Steel Plant**.
+
+The project addresses a practical enterprise workflow: reducing the manual effort required to discover industry-relevant news and compile selected information into structured reports.
+
+---
+
+## Author
+
+**Malla Shriya**  
+B.Tech — Information Technology  
+Manipal Institute of Technology, Bengaluru
+
+GitHub: `shriya-2006`
+
+---
+
+## Disclaimer
+
+NewsPulse aggregates news metadata and available content from configured third-party news providers and RSS sources. Availability and completeness of article content depend on the respective provider, API plan, and source. The application does not bypass publisher access controls or guarantee access to full copyrighted article text.
